@@ -96,6 +96,7 @@ branding/scripts/
 branding/*.html
 branding/*.png
 diagrams-preview.png
+blog-preview*.png
 
 # Diagram variant exploration (only the locked picks ship, not -A / -C alternates).
 # Locked picks: 01-architecture-B, 02-pipeline-A, 03-sub-skill-map-B,

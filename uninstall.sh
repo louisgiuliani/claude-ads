@@ -60,8 +60,15 @@ main() {
         done
     fi
 
-    # Remove bundled audit + creative agents
-    for agent in audit-google audit-meta audit-creative audit-tracking audit-budget audit-compliance audit-amazon audit-attribution audit-server-side creative-strategist visual-designer copy-writer format-adapter; do
+    # Remove bundled audit + creative agents.
+    # ⚠ Keep this list in sync with the contents of `agents/` in the repo. The
+    # installer uses `cp agents/*.md` so any new agent file added there must
+    # also be appended below. The previous list contained non-existent
+    # entries (audit-amazon, audit-attribution, audit-server-side) and missed
+    # the actual shipped agents — fixed in v1.7.1.
+    for agent in \
+        audit-budget audit-compliance audit-creative audit-google audit-meta audit-tracking \
+        copy-writer creative-strategist format-adapter visual-designer; do
         rm -f "${AGENT_DIR}/${agent}.md"
     done
 

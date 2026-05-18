@@ -50,12 +50,16 @@ function Main {
         }
     }
 
-    # Remove bundled audit + creative agents
+    # Remove bundled audit + creative agents.
+    # NOTE: Keep this list in sync with the contents of `agents/` in the repo.
+    # install.ps1 uses `Copy-Item agents\*.md` so any new agent file added
+    # there must also be appended below. Pre-v1.7.1 the list contained
+    # non-existent entries (audit-amazon, audit-attribution, audit-server-side)
+    # and missed the actual shipped agents.
     $Agents = @(
-        "audit-google", "audit-meta", "audit-creative",
-        "audit-tracking", "audit-budget", "audit-compliance",
-        "audit-amazon", "audit-attribution", "audit-server-side",
-        "creative-strategist", "visual-designer", "copy-writer", "format-adapter"
+        "audit-budget", "audit-compliance", "audit-creative",
+        "audit-google", "audit-meta", "audit-tracking",
+        "copy-writer", "creative-strategist", "format-adapter", "visual-designer"
     )
     foreach ($agent in $Agents) {
         $AgentPath = Join-Path $AgentDir "$agent.md"
