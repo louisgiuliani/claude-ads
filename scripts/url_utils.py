@@ -12,11 +12,23 @@ import socket
 from urllib.parse import urlparse
 
 # Sensitive substrings to redact from any error message before logging or
-# returning to the caller. Catches `key=...`, `token: ...`, `secret=...`,
-# `password=...`, and bare `Bearer <token>` headers regardless of case.
+# returning to the caller. Catches common credential parameter names (api_key,
+# apikey, access_token, refresh_token, auth, key, token, secret, password,
+# OAuth `code=`, AWS `signature=`) and bare `Bearer <token>` headers
+# regardless of case.
 _SENSITIVE_PATTERN = re.compile(
-    r'(key|token|secret|password)\s*[=:]\s*\S+|Bearer\s+\S+', re.IGNORECASE,
+    r'(api[_-]?key|access[_-]?token|refresh[_-]?token|auth|key|token|secret|password|code|signature)'
+    r'\s*[=:]\s*(?:Bearer\s+)?\S+|Bearer\s+\S+',
+    re.IGNORECASE,
 )
+
+
+def _redact_sensitive(text: str) -> str:
+    """Run the credential-redaction regex over arbitrary text."""
+    return _SENSITIVE_PATTERN.sub(
+        lambda m: (m.group(1).lower().replace('-', '_') + '=***') if m.group(1) else 'Bearer ***',
+        text,
+    )
 
 
 def sanitize_error(err: Exception) -> str:
@@ -32,10 +44,31 @@ def sanitize_error(err: Exception) -> str:
     Returns:
         The exception string with sensitive substrings replaced.
     """
-    msg = str(err)
-    return _SENSITIVE_PATTERN.sub(
-        lambda m: (m.group(1) + '=***') if m.group(1) else 'Bearer ***', msg,
-    )
+    return _redact_sensitive(str(err))
+
+
+def sanitize_url(url: str) -> str:
+    """Strip credentials from a URL string before logging it to stderr or stdout.
+
+    Covers tokens embedded in query parameters (`?access_token=...&code=...`)
+    and userinfo (`https://user:password@host/`). The output is meant to be
+    safe to surface in CLI output, logs, or transcripts — not round-trippable.
+
+    Args:
+        url: The URL to sanitize.
+
+    Returns:
+        URL with credential-bearing values replaced by `***`.
+    """
+    # Drop userinfo segment if present (https://user:pass@host -> https://host)
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        netloc = parsed.hostname or ''
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        url = parsed._replace(netloc=netloc).geturl()
+    # Redact any sensitive query parameters via the same pattern used for errors
+    return _redact_sensitive(url)
 
 _BLOCKED_NETS = [
     # IPv4 private/reserved
@@ -47,11 +80,15 @@ _BLOCKED_NETS = [
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("100.64.0.0/10"),    # CGNAT / shared address space (cloud VPCs)
     # IPv6 private/reserved
-    ipaddress.ip_network("::/128"),         # unspecified address (some kernels coerce to localhost)
+    ipaddress.ip_network("::/128"),           # unspecified address (some kernels coerce to localhost)
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
-    ipaddress.ip_network("::ffff:0:0/96"),  # IPv4-mapped IPv6
+    ipaddress.ip_network("::ffff:0:0/96"),    # IPv4-mapped IPv6
+    ipaddress.ip_network("64:ff9b::/96"),     # NAT64 well-known prefix → tunnels to IPv4 metadata
+    ipaddress.ip_network("64:ff9b:1::/48"),   # NAT64 local-use prefix
+    ipaddress.ip_network("2002::/16"),        # 6to4 tunnel → embedded IPv4 may be private
+    ipaddress.ip_network("2001:db8::/32"),    # documentation range (RFC 3849)
 ]
 
 

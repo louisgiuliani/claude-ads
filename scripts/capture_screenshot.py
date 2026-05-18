@@ -71,6 +71,9 @@ def capture_screenshot(
             )
             page = context.new_page()
             page.goto(url, wait_until="networkidle", timeout=timeout)
+            # Playwright follows redirects silently. Re-validate the final URL
+            # against the SSRF blocklist (initial URL was already checked).
+            validate_url(page.url)
             page.wait_for_timeout(1000)
             page.screenshot(path=output_path, full_page=full_page)
             result["success"] = True

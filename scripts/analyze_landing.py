@@ -91,6 +91,9 @@ def analyze_landing(url: str, timeout: int = 30000) -> dict:
             page = desktop.new_page()
 
             page.goto(url, wait_until="networkidle", timeout=timeout)
+            # Playwright follows redirects silently. Re-validate the final URL
+            # against the SSRF blocklist (initial URL was already checked).
+            validate_url(page.url)
 
             # Performance metrics
             perf = page.evaluate("""
@@ -214,6 +217,7 @@ def analyze_landing(url: str, timeout: int = 30000) -> dict:
             mobile = browser.new_context(viewport={"width": 375, "height": 812})
             page = mobile.new_page()
             page.goto(url, wait_until="networkidle", timeout=timeout)
+            validate_url(page.url)
 
             # LCP on mobile viewport (G59 = mobile speed)
             lcp = page.evaluate("""

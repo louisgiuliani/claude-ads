@@ -9,8 +9,9 @@ Usage:
 
 import argparse
 import sys
+from urllib.parse import urljoin
 
-from url_utils import sanitize_error, validate_url
+from url_utils import sanitize_error, sanitize_url, validate_url
 
 try:
     import requests
@@ -57,27 +58,50 @@ def fetch_page(
 
     try:
         session = requests.Session()
-        session.max_redirects = max_redirects
+        current_url = url
+        redirect_chain = []
 
-        response = session.get(
-            url,
-            headers=DEFAULT_HEADERS,
-            timeout=timeout,
-            allow_redirects=follow_redirects,
-        )
+        # Manual redirect loop with per-hop SSRF revalidation. The previous
+        # `allow_redirects=True` path delegated to urllib3, which fetched
+        # `Location` targets without re-checking them against the private-IP
+        # blocklist. A public origin returning a 302 to e.g. 169.254.169.254
+        # would have reached cloud metadata.
+        for _ in range(max_redirects + 1):
+            response = session.get(
+                current_url,
+                headers=DEFAULT_HEADERS,
+                timeout=timeout,
+                allow_redirects=False,
+            )
 
-        result["url"] = response.url
+            if not follow_redirects or response.status_code not in (301, 302, 303, 307, 308):
+                break
+
+            location = response.headers.get("Location")
+            if not location:
+                break
+
+            next_url = urljoin(current_url, location)
+            try:
+                next_url = validate_url(next_url)
+            except ValueError as e:
+                result["error"] = f"Blocked redirect: {sanitize_error(e)}"
+                return result
+
+            redirect_chain.append(current_url)
+            current_url = next_url
+        else:
+            result["error"] = f"Too many redirects (max {max_redirects})"
+            return result
+
+        result["url"] = current_url
         result["status_code"] = response.status_code
         result["content"] = response.text
         result["headers"] = dict(response.headers)
-
-        if response.history:
-            result["redirect_chain"] = [r.url for r in response.history]
+        result["redirect_chain"] = redirect_chain
 
     except requests.exceptions.Timeout:
         result["error"] = f"Request timed out after {timeout} seconds"
-    except requests.exceptions.TooManyRedirects:
-        result["error"] = f"Too many redirects (max {max_redirects})"
     except requests.exceptions.SSLError as e:
         result["error"] = f"SSL error: {sanitize_error(e)}"
     except requests.exceptions.ConnectionError as e:
@@ -114,10 +138,11 @@ def main():
     else:
         print(result["content"])
 
-    print(f"\nURL: {result['url']}", file=sys.stderr)
+    print(f"\nURL: {sanitize_url(result['url'])}", file=sys.stderr)
     print(f"Status: {result['status_code']}", file=sys.stderr)
     if result["redirect_chain"]:
-        print(f"Redirects: {' -> '.join(result['redirect_chain'])}", file=sys.stderr)
+        sanitized_chain = [sanitize_url(u) for u in result["redirect_chain"]]
+        print(f"Redirects: {' -> '.join(sanitized_chain)}", file=sys.stderr)
 
 
 if __name__ == "__main__":
